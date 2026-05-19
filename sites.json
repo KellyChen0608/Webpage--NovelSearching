@@ -1,0 +1,32 @@
+[
+  {
+    "name": "52shuku",
+    "url": "https://www.52shuku.net/",
+    "search_url": "https://www.52shuku.net/so/search.php",
+    "method": "GET",
+    "param": "q",
+    "result_selector": "article.excerpt header a",
+    "title_selector": "h4",
+    "not_found_text": "找不到和"
+  },
+  {
+    "name": "linnuojiaju",
+    "url": "http://www.linnuojiaju.com/",
+    "search_url": "http://www.linnuojiaju.com/search/",
+    "method": "POST",
+    "param": "searchkey",
+    "result_selector": "ul.txt-list li span.s2 a",
+    "title_selector": null,
+    "not_found_text": "抱歉，没有找到"
+  },
+  {
+    "name": "6qxs",
+    "url": "https://www.6qxs.com/",
+    "search_url": "https://www.6qxs.com/search.html",
+    "method": "POST",
+    "param": "s",
+    "result_selector": "ul.txt-list li span.s2 a",
+    "title_selector": null,
+    "not_found_text": "未找到与"
+  }
+]

@@ -1,0 +1,3 @@
+- [Novel search app](project_novel_search_app.md) — Flask+HTML tool at ~/Desktop/Internship for searching Chinese novels across configured sites; only 52shuku.net has a scraper so far.
+- [Don't probe anti-bot sites](feedback_anti_bot_probing.md) — rapid URL probing on sites with JS guards (e.g. `_guard/auto.js`) can blacklist the user's IP and block their browser.
+- [Zsh `path` is tied to `PATH`](feedback_zsh_path_variable.md) — never use `path` as a variable name in zsh; it overwrites `PATH` and breaks subsequent commands.
