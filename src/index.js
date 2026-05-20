@@ -4,7 +4,17 @@ const UA =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) " +
   "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
 
-export async function onRequestPost({ request }) {
+export default {
+  async fetch(request, env, ctx) {
+    const url = new URL(request.url);
+    if (url.pathname === "/api/search" && request.method === "POST") {
+      return handleSearch(request);
+    }
+    return env.ASSETS.fetch(request);
+  },
+};
+
+async function handleSearch(request) {
   let body;
   try {
     body = await request.json();
