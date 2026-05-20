@@ -1,42 +1,29 @@
-"""Novel search backend.
+"""Novel search backend (local dev server).
 
 Run:
     pip install -r requirements.txt
     python app.py
 Then open http://localhost:5050 in your browser.
 
-Sites are loaded from sites.json (same folder as this file). Edit that file
-by hand to add/remove/configure sites, or use the Add Site form in the UI.
+This is the local equivalent of the Cloudflare Pages Function in
+functions/api/search.js. Both expose POST /api/search with the same contract,
+so the same index.html works in both environments. Sites are managed in the
+browser via localStorage; this server is purely a CORS-bypass scraper.
 """
 from flask import Flask, request, jsonify, send_from_directory
 import requests
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin
-import json
 import os
 
 app = Flask(__name__)
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-SITES_FILE = os.path.join(HERE, "sites.json")
 
 UA = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
     "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 )
-
-
-def load_sites():
-    if not os.path.exists(SITES_FILE):
-        return []
-    with open(SITES_FILE, "r", encoding="utf-8") as f:
-        return json.load(f)
-
-
-def save_sites(sites):
-    with open(SITES_FILE, "w", encoding="utf-8") as f:
-        json.dump(sites, f, indent=2, ensure_ascii=False)
-        f.write("\n")
 
 
 def search_site(config, novel):
@@ -82,85 +69,22 @@ def index():
     return send_from_directory(HERE, "index.html")
 
 
-@app.route("/sites", methods=["GET"])
-def list_sites():
-    sites = load_sites()
-    return jsonify([
-        {"name": s.get("name"), "url": s.get("url"), "search_url": s.get("search_url")}
-        for s in sites
-    ])
-
-
-@app.route("/sites", methods=["POST"])
-def add_site():
+@app.route("/api/search", methods=["POST"])
+def api_search():
     body = request.get_json(force=True) or {}
-    missing = [k for k in ("name", "search_url") if not (body.get(k) or "").strip()]
-    if missing:
-        return jsonify({"error": f"Missing fields: {', '.join(missing)}"}), 400
-
-    sites = load_sites()
-    name = body["name"].strip()
-    if any(s.get("name") == name for s in sites):
-        return jsonify({"error": f"A site named '{name}' already exists."}), 400
-
-    new_site = {
-        "name": name,
-        "url": (body.get("url") or "").strip() or body["search_url"].strip(),
-        "search_url": body["search_url"].strip(),
-        "method": (body.get("method") or "GET").upper(),
-        "param": (body.get("param") or "q").strip(),
-        "result_selector": (body.get("result_selector") or "ul.txt-list li span.s2 a").strip(),
-        "title_selector": (body.get("title_selector") or "").strip() or None,
-        "not_found_text": (body.get("not_found_text") or "").strip() or None,
-    }
-    sites.append(new_site)
-    save_sites(sites)
-    return jsonify({"ok": True, "site": new_site})
-
-
-@app.route("/sites/<name>", methods=["DELETE"])
-def remove_site(name):
-    sites = load_sites()
-    new_sites = [s for s in sites if s.get("name") != name]
-    if len(new_sites) == len(sites):
-        return jsonify({"error": "Site not found"}), 404
-    save_sites(new_sites)
-    return jsonify({"ok": True})
-
-
-@app.route("/search", methods=["POST"])
-def search():
-    payload = request.get_json(force=True) or {}
-    novel = (payload.get("novel") or "").strip()
+    site = body.get("site") or {}
+    novel = (body.get("novel") or "").strip()
+    if not site or not site.get("search_url"):
+        return jsonify({"error": "site config with search_url required"}), 400
     if not novel:
-        return jsonify({"error": "Novel name required"}), 400
-
-    sites = load_sites()
-    results = []
-    for site in sites:
-        site_name = site.get("name") or site.get("url") or "?"
-        try:
-            res = search_site(site, novel)
-            if res.get("found"):
-                results.append({
-                    "site": site_name,
-                    "status": "found",
-                    "result_url": res["url"],
-                    "title": res.get("title"),
-                })
-            else:
-                results.append({
-                    "site": site_name,
-                    "status": "not_found",
-                    "message": f'Nothing found for "{novel}" on {site_name}.',
-                })
-        except Exception as e:
-            results.append({
-                "site": site_name,
-                "status": "error",
-                "message": f"Error fetching {site_name}: {e}",
-            })
-    return jsonify({"results": results})
+        return jsonify({"error": "novel required"}), 400
+    try:
+        res = search_site(site, novel)
+        if res.get("found"):
+            return jsonify({"found": True, "url": res["url"], "title": res.get("title")})
+        return jsonify({"found": False})
+    except Exception as e:
+        return jsonify({"found": False, "error": str(e)})
 
 
 if __name__ == "__main__":

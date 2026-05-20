@@ -47,6 +47,9 @@
 
 <h2>Your saved sites</h2>
 <div id="site-list"></div>
+<div class="row" style="margin-top:8px;">
+  <button id="reset-defaults" class="secondary">Reset to defaults</button>
+</div>
 
 <details id="add-section">
   <summary>+ Add a site</summary>
@@ -93,12 +96,59 @@
 <div id="results" style="margin-top: 20px;"></div>
 
 <script>
-async function fetchSites() {
-  const r = await fetch("/sites");
-  return await r.json();
+const STORAGE_KEY = "novel_search_sites_v2";
+
+const DEFAULT_SITES = [
+  {
+    name: "52shuku",
+    url: "https://www.52shuku.net/",
+    search_url: "https://www.52shuku.net/so/search.php",
+    method: "GET",
+    param: "q",
+    result_selector: "article.excerpt header a",
+    title_selector: "h4",
+    not_found_text: "找不到和"
+  },
+  {
+    name: "linnuojiaju",
+    url: "http://www.linnuojiaju.com/",
+    search_url: "http://www.linnuojiaju.com/search/",
+    method: "POST",
+    param: "searchkey",
+    result_selector: "ul.txt-list li span.s2 a",
+    title_selector: null,
+    not_found_text: "抱歉，没有找到"
+  },
+  {
+    name: "6qxs",
+    url: "https://www.6qxs.com/",
+    search_url: "https://www.6qxs.com/search.html",
+    method: "POST",
+    param: "s",
+    result_selector: "ul.txt-list li span.s2 a",
+    title_selector: null,
+    not_found_text: "未找到与"
+  }
+];
+
+function loadSites() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return DEFAULT_SITES.slice();
+    const arr = JSON.parse(raw);
+    if (!Array.isArray(arr) || arr.length === 0) return DEFAULT_SITES.slice();
+    return arr;
+  } catch (e) {
+    return DEFAULT_SITES.slice();
+  }
 }
 
-function renderSites(sites) {
+function saveSites(sites) {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(sites));
+}
+
+function renderSites() {
+  const sites = loadSites();
   const list = document.getElementById("site-list");
   list.innerHTML = "";
   if (!sites.length) {
@@ -120,11 +170,11 @@ function renderSites(sites) {
     const rm = document.createElement("button");
     rm.className = "danger";
     rm.textContent = "Remove";
-    rm.onclick = async () => {
+    rm.onclick = () => {
       if (!confirm(`Remove "${s.name}"?`)) return;
-      const r = await fetch("/sites/" + encodeURIComponent(s.name), { method: "DELETE" });
-      if (r.ok) loadAndRenderSites();
-      else alert("Failed to remove.");
+      const filtered = loadSites().filter(x => x.name !== s.name);
+      saveSites(filtered);
+      renderSites();
     };
     div.appendChild(name);
     div.appendChild(link);
@@ -133,115 +183,119 @@ function renderSites(sites) {
   });
 }
 
-async function loadAndRenderSites() {
-  try {
-    const sites = await fetchSites();
-    renderSites(sites);
-  } catch (e) {
-    document.getElementById("site-list").innerHTML =
-      '<p class="muted">Could not load sites: ' + e.message + '</p>';
-  }
-}
+document.getElementById("reset-defaults").onclick = () => {
+  if (!confirm("Reset your sites list to defaults? Custom sites you added will be removed.")) return;
+  saveSites(DEFAULT_SITES.slice());
+  renderSites();
+};
 
-document.getElementById("add-btn").onclick = async () => {
-  const body = {
+document.getElementById("add-btn").onclick = () => {
+  const newSite = {
     name: document.getElementById("add-name").value.trim(),
     url: document.getElementById("add-url").value.trim(),
     search_url: document.getElementById("add-search-url").value.trim(),
     method: document.getElementById("add-method").value,
-    param: document.getElementById("add-param").value.trim(),
-    result_selector: document.getElementById("add-selector").value.trim(),
-    title_selector: document.getElementById("add-title-selector").value.trim(),
-    not_found_text: document.getElementById("add-not-found").value.trim(),
+    param: document.getElementById("add-param").value.trim() || "q",
+    result_selector: document.getElementById("add-selector").value.trim() || "ul.txt-list li span.s2 a",
+    title_selector: document.getElementById("add-title-selector").value.trim() || null,
+    not_found_text: document.getElementById("add-not-found").value.trim() || null
   };
-  if (!body.name || !body.search_url) {
-    alert("Display name and Search URL are required.");
+  const status = document.getElementById("add-status");
+  if (!newSite.name || !newSite.search_url) {
+    status.textContent = "Display name and Search URL are required.";
     return;
   }
-  const status = document.getElementById("add-status");
-  status.textContent = "Adding...";
-  try {
-    const r = await fetch("/sites", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    const data = await r.json();
-    if (!r.ok) { status.textContent = "Error: " + (data.error || "unknown"); return; }
-    status.textContent = "Added.";
-    ["add-name","add-url","add-search-url","add-param","add-selector","add-title-selector","add-not-found"]
-      .forEach(id => document.getElementById(id).value = id === "add-param" ? "q" : (id === "add-selector" ? "ul.txt-list li span.s2 a" : ""));
-    document.getElementById("add-section").open = false;
-    loadAndRenderSites();
-  } catch (e) {
-    status.textContent = "Network error: " + e.message;
+  const sites = loadSites();
+  if (sites.some(s => s.name === newSite.name)) {
+    status.textContent = `A site named '${newSite.name}' already exists.`;
+    return;
   }
+  if (!newSite.url) newSite.url = newSite.search_url;
+  sites.push(newSite);
+  saveSites(sites);
+  status.textContent = "Added.";
+  ["add-name", "add-url", "add-search-url", "add-title-selector", "add-not-found"]
+    .forEach(id => document.getElementById(id).value = "");
+  document.getElementById("add-param").value = "q";
+  document.getElementById("add-selector").value = "ul.txt-list li span.s2 a";
+  document.getElementById("add-section").open = false;
+  renderSites();
 };
 
-function renderResult(res) {
+function renderResult(siteName, payload) {
   const div = document.createElement("div");
-  div.className = "result " + res.status;
+  div.className = "result " + payload.status;
   const head = document.createElement("div");
   const siteSpan = document.createElement("span");
   siteSpan.className = "site-name";
-  siteSpan.textContent = res.site;
+  siteSpan.textContent = siteName;
   const tag = document.createElement("span");
-  tag.className = "tag " + res.status;
-  tag.textContent = ({ found: "Found", not_found: "Not found", error: "Error" })[res.status] || res.status;
+  tag.className = "tag " + payload.status;
+  tag.textContent = ({ found: "Found", not_found: "Not found", error: "Error" })[payload.status] || payload.status;
   head.appendChild(siteSpan);
   head.appendChild(tag);
   div.appendChild(head);
-
   const body = document.createElement("div");
   body.className = "body";
-  if (res.status === "found") {
+  if (payload.status === "found") {
     const a = document.createElement("a");
-    a.href = res.result_url; a.target = "_blank"; a.rel = "noopener";
-    a.textContent = res.title || res.result_url;
+    a.href = payload.url; a.target = "_blank"; a.rel = "noopener";
+    a.textContent = payload.title || payload.url;
     body.appendChild(a);
   } else {
-    body.textContent = res.message || "";
+    body.textContent = payload.message || "";
   }
   div.appendChild(body);
   return div;
 }
 
+async function searchSite(site, novel) {
+  try {
+    const r = await fetch("/api/search", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ site, novel })
+    });
+    const data = await r.json();
+    if (data.error) return { status: "error", message: data.error };
+    if (data.found) return { status: "found", url: data.url, title: data.title };
+    return { status: "not_found", message: `Nothing found for "${novel}" on ${site.name}.` };
+  } catch (e) {
+    return { status: "error", message: "Network error: " + e.message };
+  }
+}
+
 document.getElementById("search").onclick = async () => {
   const novel = document.getElementById("novel").value.trim();
   if (!novel) { alert("Please enter a novel name."); return; }
+  const sites = loadSites();
   const btn = document.getElementById("search");
   const resultsEl = document.getElementById("results");
   btn.disabled = true; btn.textContent = "Searching...";
   resultsEl.innerHTML = '<p class="muted">Searching...</p>';
-  try {
-    const r = await fetch("/search", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ novel }),
-    });
-    const data = await r.json();
-    resultsEl.innerHTML = "";
-    if (!data.results) {
-      resultsEl.textContent = "Error: " + (data.error || "unknown");
-      return;
-    }
-    if (!data.results.length) {
-      resultsEl.innerHTML = '<p class="muted">No sites configured. Add one above.</p>';
-      return;
-    }
-    data.results.forEach(res => resultsEl.appendChild(renderResult(res)));
-  } catch (e) {
-    resultsEl.textContent = "Network error: " + e.message;
-  } finally {
-    btn.disabled = false; btn.textContent = "Search";
-  }
+
+  resultsEl.innerHTML = "";
+  const placeholders = sites.map(s => {
+    const ph = document.createElement("div");
+    ph.className = "result";
+    ph.innerHTML = `<span class="site-name">${s.name}</span> <span class="muted">— searching...</span>`;
+    resultsEl.appendChild(ph);
+    return ph;
+  });
+
+  await Promise.all(sites.map(async (s, i) => {
+    const payload = await searchSite(s, novel);
+    placeholders[i].replaceWith(renderResult(s.name, payload));
+  }));
+
+  btn.disabled = false; btn.textContent = "Search";
 };
 
 document.getElementById("novel").addEventListener("keydown", e => {
   if (e.key === "Enter") document.getElementById("search").click();
 });
 
-loadAndRenderSites();
+renderSites();
 </script>
 </body>
 </html>

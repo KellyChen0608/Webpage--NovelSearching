@@ -1,0 +1,166 @@
+═══════════════════════════════════════════════════════════════════
+Novel Search — Cloudflare Pages 部署说明
+═══════════════════════════════════════════════════════════════════
+
+这份说明记录:
+  1. 我(Claude)为了让这个项目能部署到 Cloudflare Pages 改了什么
+  2. 你(Kelly)接下来需要在 Cloudflare 上点哪些按钮
+  3. 部署后出问题怎么排查
+  4. 之后想绑自己买的域名怎么做
+
+═══════════════════════════════════════════════════════════════════
+0. 先看这个 — 风险提醒
+═══════════════════════════════════════════════════════════════════
+
+Cloudflare Pages 跑爬虫时,出去的 IP 是 Cloudflare 的全球节点 IP。
+这些 IP 段被中国小说网站封的概率高。预期:
+  - 52shuku.net    大概率能用
+  - linnuojiaju    可能会失败 (Cloudflare IP 被识别)
+  - 6qxs           可能会失败 (Cloudflare IP 被识别)
+
+部署后第一件事就是验证 — 输入一个常见小说名试搜。如果只有 52shuku
+出结果,其他显示 "Error",那就是 IP 被封了 (不是我代码写错)。
+应对方法见末尾 "如果 IP 被封怎么办"。
+
+═══════════════════════════════════════════════════════════════════
+1. 我做了什么 (架构变化)
+═══════════════════════════════════════════════════════════════════
+
+之前 (本地 Flask 版本):
+  浏览器 ──► Flask (app.py) ──► 抓小说网站
+  网站列表存在服务器的 sites.json 里
+
+之后 (Cloudflare Pages 兼容版本):
+  浏览器 ──► Cloudflare Pages Function (functions/api/search.js) ──► 抓小说网站
+  网站列表存在浏览器 localStorage 里 (因为 Cloudflare Functions 没有持久磁盘)
+  Pages Function 用 JavaScript + cheerio 库做 HTML 解析
+
+具体改动:
+  + functions/api/search.js   新增 — Cloudflare Pages Function (JS 版后端)
+  + package.json               新增 — 声明 cheerio 依赖
+  + index.html                 重写 — 用 localStorage,自带 3 个默认网站
+  + app.py                     精简 — 现在也提供 /api/search,跟 Pages 同样的契约
+  - sites.json                 删除 — 不再用文件存储
+
+本地跑 (Flask) 和 Cloudflare Pages 用的是同一个 index.html,两边
+都暴露 POST /api/search,所以前端代码不分环境。
+
+═══════════════════════════════════════════════════════════════════
+2. 部署步骤 — 你来操作
+═══════════════════════════════════════════════════════════════════
+
+前提:
+  - 代码已经在 GitHub: https://github.com/KellyChen0608/Webpage--NovelSearching
+  - 你有 Cloudflare 账号 (没有的话去 https://dash.cloudflare.com/sign-up 免费注册)
+
+步骤:
+
+(1) 登录 Cloudflare Dashboard
+    https://dash.cloudflare.com/
+
+(2) 左侧菜单点 "Workers & Pages" → 顶部 "Create application" 标签
+    → "Pages" 标签 → "Connect to Git"
+    (如果第一次用,会要求你授权 GitHub。点击授权,只授给这一个仓库即可。)
+
+(3) 选仓库:KellyChen0608/Webpage--NovelSearching → 点 "Begin setup"
+
+(4) 配置构建设置 (这步关键,不要照默认):
+    - Project name: novelsearch (或你喜欢的名字,会变成 xxx.pages.dev)
+    - Production branch: main
+    - Framework preset: None
+    - Build command: (留空)
+    - Build output directory: (留空 或 填 ".")
+    - Root directory: (留空)
+    - Environment variables: 不用加
+
+(5) 点 "Save and Deploy"
+    Cloudflare 会自动:
+      - 拉取代码
+      - 检测到 package.json,自动 npm install (装 cheerio)
+      - 检测到 functions/ 目录,把里面的 .js 文件部署为 Functions
+      - 把 index.html 部署为静态首页
+    首次部署大概 1-2 分钟。
+
+(6) 部署成功后,Cloudflare 会显示一个 URL,类似:
+    https://novelsearch.pages.dev
+    或    https://novelsearch-abc.pages.dev (如果名字重了会加随机后缀)
+
+(7) 打开那个 URL,测试搜索。
+    成功标志:
+      - 页面加载,显示 "Your saved sites" (有 3 个默认网站)
+      - 搜索一个常见小说名 (比如 "我不做妾")
+      - 至少 52shuku 返回 "Found" 和一个链接
+
+═══════════════════════════════════════════════════════════════════
+3. 之后改代码 → 自动重新部署
+═══════════════════════════════════════════════════════════════════
+
+Cloudflare Pages 连了 GitHub 之后,只要你 push 到 main 分支,
+Cloudflare 会自动重新构建和部署。每次推送在 Dashboard 里能看到
+deployment 历史。
+
+如果想本地预览改动,直接 python app.py 就好,跟以前一样。
+
+═══════════════════════════════════════════════════════════════════
+4. 如果 IP 被封怎么办
+═══════════════════════════════════════════════════════════════════
+
+现象:Cloudflare 上某些网站搜索一直 "Error" 或一直 "Not found"。
+
+方案 A (推荐) — 那些被封的网站只用本地版
+  在 Cloudflare 上保留 52shuku 等能跑的网站,linnuojiaju/6qxs
+  从 Cloudflare 版的 localStorage 删掉。本地版 (python app.py)
+  保留全部网站,需要查那两个时用本地版搜。
+
+方案 B — 改用 Cloudflare Tunnel (之前推荐过的方案)
+  完全跳过 Pages,把本地 Flask 通过 Tunnel 暴露成 *.trycloudflare.com
+  URL。出去的 IP 是你家的,不会被封。
+  装法:brew install cloudflared
+  跑法:python app.py & cloudflared tunnel --url http://localhost:5050
+
+方案 C — 给 Pages Function 加代理
+  通过付费代理服务 (例如 Bright Data) 走真实住宅 IP。要花钱,不推荐
+  个人项目用。
+
+═══════════════════════════════════════════════════════════════════
+5. 之后想绑自己买的域名
+═══════════════════════════════════════════════════════════════════
+
+(1) 买域名 — 推荐 Cloudflare Registrar (https://dash.cloudflare.com/?to=/:account/registrar)
+    成本价,没溢价,$10/年左右。也可以在 Namecheap、GoDaddy 买。
+
+(2) 如果在 Cloudflare Registrar 买的,DNS 已经在 Cloudflare,跳过 (3)。
+    如果在别家买的:在 Cloudflare Dashboard 添加该域名 (Add a Site),
+    按指引把 Name Servers 改到 Cloudflare 给的两个 NS。等几小时生效。
+
+(3) 在 Pages 项目页 → "Custom domains" 标签 → "Set up a custom domain"
+    输入你买的域名 (例如 novelsearch.example.com 或 example.com),
+    Cloudflare 会自动加 DNS 记录指向 pages.dev。
+
+(4) 几分钟后访问该域名,自动有 HTTPS。
+
+═══════════════════════════════════════════════════════════════════
+6. 文件结构说明 (供以后改代码参考)
+═══════════════════════════════════════════════════════════════════
+
+Webpage---Searching/
+├── index.html                       前端 (静态),Cloudflare 和本地共用
+├── functions/
+│   └── api/
+│       └── search.js                Cloudflare Pages Function — POST /api/search
+├── package.json                     声明 cheerio 依赖,Pages 构建时会装
+├── app.py                           本地 Flask 服务器,提供同样的 /api/search
+├── requirements.txt                 Flask + requests + bs4,本地用
+├── .gitignore
+└── 部署说明.txt                     本文件
+
+默认网站列表在 index.html 里的 DEFAULT_SITES 数组,想改默认值改这里。
+但注意:浏览器一旦有 localStorage,DEFAULT_SITES 就不会再被读 —
+要测试默认值,在浏览器开发者工具里清掉 localStorage 即可。
+
+═══════════════════════════════════════════════════════════════════
+最后一句话
+═══════════════════════════════════════════════════════════════════
+
+如果某个网站在 Cloudflare 上死活不工作,基本就是 IP 被封了 —
+不是代码问题,改代码也救不回来。这类网站要么本地搜,要么走 Tunnel。
