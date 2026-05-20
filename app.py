@@ -66,7 +66,7 @@ def search_site(config, novel):
 
 @app.route("/")
 def index():
-    return send_from_directory(HERE, "index.html")
+    return send_from_directory(os.path.join(HERE, "public"), "index.html")
 
 
 @app.route("/api/search", methods=["POST"])
